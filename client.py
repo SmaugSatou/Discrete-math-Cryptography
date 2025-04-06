@@ -24,6 +24,7 @@ class Client:
 
         try:
             self.client_socket.connect((self.server_ip, self.port))
+            print(f"[client]: connected to server at {self.server_ip}:{self.port}")
         except (ConnectionRefusedError, socket.gaierror, socket.timeout) as e:
             print("[client]: could not connect to server: ", e)
             return
@@ -42,6 +43,18 @@ class Client:
         input_handler = threading.Thread(target=self.write_handler,args=())
         input_handler.start()
 
+    def encrypt_message(self, message: str):
+        """ Encrypts the message.
+        """
+
+        return message
+
+    def decrypt_message(self, message: str):
+        """ Decrypts the message.
+        """
+
+        return message
+
     def read_handler(self):
         """ Handles incoming messages.
         """
@@ -49,25 +62,39 @@ class Client:
         while True:
             message = self.client_socket.recv(1024).decode()
 
-            # decrypt message with the secrete key
+            if not message:
+                break
 
+            # decrypt message with the secrete key
+            decrypted_message = self.decrypt_message(message)
             # ...
 
-
-            print(message)
+            print(decrypted_message)
 
     def write_handler(self):
         """ Handles outgoing messages.
         """
 
-        while True:
-            message = input()
+        try:
+            while True:
+                message = input()
 
-            # encrypt message with the secrete key
+                if message.lower() == "!exit":
+                    print("[client]: Disconnecting...")
+                    self.client_socket.send(b'!exit')
+                    break
 
-            # ...
+                # encrypt message with the secrete key
+                encrypted_message = self.encrypt_message(message)
+                # ...
 
-            self.client_socket.send(message.encode())
+                self.client_socket.send(encrypted_message.encode())
+        except EOFError:
+            print("[client]: Input stream closed. Disconnecting...")
+
+            self.client_socket.send(b'!exit')
+
+        print("[client]: Connection closed.")
 
 if __name__ == "__main__":
     cl = Client("127.0.0.1", 9001, "b_g")

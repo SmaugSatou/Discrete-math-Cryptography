@@ -24,15 +24,17 @@ class Server:
         self.s.bind((self.host, self.port))
         self.s.listen(100)
 
+        print(f"[server]: Server started and listening on {self.host}:{self.port}")
+
         # generate keys ...
 
         while True:
             c, addr = self.s.accept()
             username = c.recv(1024).decode()
 
-            print(f"{username} tries to connect")
+            print(f"[server]: {username} tries to connect")
 
-            self.broadcast(f'new person has joined: {username}')
+            self.broadcast(f'[server]: new person has joined: {username}')
             self.username_lookup[c] = username
             self.clients.append(c)
 
@@ -63,7 +65,11 @@ class Server:
 
             # ...
 
-            client.send(msg.encode())
+            try:
+                client.send(msg.encode())
+            except (ConnectionResetError, BrokenPipeError) as e:
+                print(f"[server]: Error sending message to a client: {e}")
+                self.remove_client(client)
 
     def handle_client(self, c: socket, addr):
         """ Receives messages from a client and forwards them.
@@ -73,12 +79,34 @@ class Server:
             addr: Client address (host, port).
         """
 
-        while True:
-            msg = c.recv(1024)
+        try:
+            while True:
+                msg = c.recv(1024)
 
-            for client in self.clients:
-                if client != c:
-                    client.send(msg)
+                if msg.decode().lower() == "!exit":
+                    print(f"[server]: Client {addr} disconnected.")
+                    break
+
+                for client in self.clients:
+                    if client != c:
+                        try:
+                            client.send(msg)
+                        except (ConnectionResetError, BrokenPipeError) as e:
+                            print(f"[server]: Error sending message to a client: {e}")
+                            self.remove_client(client)
+        except (ConnectionResetError, BrokenPipeError, EOFError) as e:
+            print(f"[server]: Client {addr} disconnected: {e}")
+
+        self.remove_client(c)
+        self.broadcast(f"[server]: Client {addr} disconnected.")
+
+    def remove_client(self, client):
+        """ Removes a client from the server and closes the connection. 
+        """
+
+        if client in self.clients:
+            self.clients.remove(client)
+            client.close()
 
 if __name__ == "__main__":
     s = Server(9001)
