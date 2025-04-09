@@ -4,115 +4,9 @@ Server Module
 
 import socket
 import threading
-
 import random
-from math import gcd
 
-class RSA:
-    """
-    Rivest-Shamir-Adleman cryptosystem implementation.
-    """
-
-    @staticmethod
-    def generate_prime_numbers(min_value: int = 1000, max_value: int = 10000, \
-                                    number = 2) -> tuple[int]:
-        """ Generates <number> distinct prime numbers in given range.
-
-        Args:
-            min_value (int, optional): Minimum value of prime numbers. Defaults to 1000.
-            max_value (int, optional): Maximum value of prime numbers. Defaults to 10000.
-
-        Returns:
-            tuple[int]: Prime numbers.
-        """
-
-        def is_prime(number: int):
-            if number < 2:
-                return False
-
-            if number == 2:
-                return True
-
-            if number % 2 == 0:
-                return False
-
-            for i in range(3, int(number**0.5) + 1, 2):
-                if number % i == 0:
-                    return False
-
-            return True
-
-        primes = []
-
-        for possible_prime in range(min_value, max_value):
-            if is_prime(possible_prime):
-                primes.append(possible_prime)
-
-        if not primes:
-            raise ValueError("No prime number in a given interval!")
-
-        return random.sample(primes, number)
-
-    @staticmethod
-    def extended_gcd(a: int, b: int) -> tuple[int, int, int]:
-        """ Computes the Extended Euclidean Algorithm.
-
-        Args:
-            a (int): First number.
-            b (int): Second number.
-
-        Returns:
-            tuple[int, int, int]: [GCD value, first coefficient, second coefficient]
-        """
-
-        if a == 0:
-            return (b, 0, 1)
-
-        gcd_value, x1, y1 = RSA.extended_gcd(b % a, a)
-        return (gcd_value, y1 - (b // a) * x1, x1)
-
-    @staticmethod
-    def modular_inverse(a: int, module: int) -> int:
-        """ Computes the modular inverse.
-
-        Args:
-            a (int): The number to invert.
-            module (int): The modulus.
-
-        Returns:
-            int: The modular inverse.
-        """
-
-        gcd_value, x, _ = RSA.extended_gcd(a, module)
-
-        if gcd_value != 1:
-            raise ValueError('Modular inverse does not exist!')
-
-        return x % module
-
-    @staticmethod
-    def generate_key_pair() -> tuple[tuple[int, int], tuple[int, int]]:
-        """ Generates an RSA public-private key pair.
-
-        Returns:
-             tuple[tuple[int, int], tuple[int, int]]: [Public key pair, Private key pair]
-        """
-
-        prime_1, prime_2 = RSA.generate_prime_numbers()
-
-        module = prime_1 * prime_2
-        totient = (prime_1 - 1) * (prime_2 - 1)
-
-        public_exponent = random.randrange(3, totient, 2)
-        while gcd(public_exponent, totient) != 1:
-            public_exponent = random.randrange(3, totient, 2)
-
-        private_exponent = RSA.modular_inverse(public_exponent, totient)
-
-        public_key = (module, public_exponent)
-        private_key = (module, private_exponent)
-
-        return public_key, private_key
+from rsa_ctyptosystem import RSA
 
 class Server:
     """
@@ -120,102 +14,164 @@ class Server:
     """
 
     def __init__(self, port: int) -> None:
+        """ Initializes the server.
+
+        Args:
+            port (int): The port on which the server will listen for connections.
+        """
+
+        self.lock = threading.Lock()
         self.host = '127.0.0.1'
         self.port = port
         self.clients = []
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
         self.username_lookup = {}
-        self.s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        self.public_keys = {}
+        self.shared_secrets = {}
+
+        self.public_key, self.private_key = RSA.generate_key_pair()
 
     def start(self):
         """ Starts the server and handles new connections.
         """
 
-        self.s.bind((self.host, self.port))
-        self.s.listen(100)
+        try:
+            self.s.bind((self.host, self.port))
+            self.s.listen(100)
 
-        print(f"[server]: Server started and listening on {self.host}:{self.port}")
+            print(f"[server]: Server started and listening on {self.host}:{self.port}")
 
-        # generate keys ...
+            while True:
+                c, addr = self.s.accept()
+                threading.Thread(target = self.handle_new_client, args = (c, addr)).start()
 
-        while True:
-            c, addr = self.s.accept()
-            username = c.recv(1024).decode()
+        except (socket.error, OSError) as e:
+            print(f"[server]: Socket error occurred: {e}")
+        finally:
+            self.shutdown()
 
-            print(f"[server]: {username} tries to connect")
-
-            self.broadcast(f'[server]: new person has joined: {username}')
-            self.username_lookup[c] = username
-            self.clients.append(c)
-
-            # send public key to the client
-
-            # ...
-
-            # encrypt the secret with the clients public key
-
-            # ...
-
-            # send the encrypted secret to a client
-
-            # ...
-
-            threading.Thread(target=self.handle_client,args=(c,addr,)).start()
-
-    def broadcast(self, msg: str):
-        """ Sends a message to all connected clients.
+    def handle_new_client(self, client_socket: socket.socket, addr: tuple[str, int]):
+        """ Handles a new client connection.
 
         Args:
-            msg (str): Message to send.
+            client_socket (socket.socket): The socket object for the connected client.
+            addr (Tuple[str, int]): The address of the connected client.
+        """
+
+        try:
+            username = client_socket.recv(1024).decode()
+            print(f"[server]: {username} tries to connect")
+
+            self.username_lookup[client_socket] = username
+            self.clients.append(client_socket)
+
+            try:
+                client_key_data = client_socket.recv(1024).decode()
+                client_module, client_exponent = map(int, client_key_data.split(','))
+            except ValueError:
+                print(f"[server]: Incorrect format received. Data: {client_key_data}\n" +
+                      "Valid format: <client_module,client_exponent>")
+                self.remove_client(client_socket)
+                return
+
+            client_public_key = (client_module, client_exponent)
+            self.public_keys[client_socket] = client_public_key
+
+            shared_secret = random.randint(100000, 999999)
+            encrypted_secret = RSA.encrypt(shared_secret, client_public_key)
+            self.shared_secrets[client_socket] = shared_secret
+
+            client_socket.send(str(encrypted_secret).encode())
+            self.broadcast(f'[server]: new person has joined: {username}')
+
+            threading.Thread(target=self.handle_client, args=(client_socket, addr)).start()
+
+        except (ValueError, socket.error, OSError) as e:
+            print(f"[server]: Error handling new client: {e}")
+            self.remove_client(client_socket)
+
+    def broadcast(self, msg: str, sender: socket = None):
+        """ Sends a message to all connected clients except the sender.
+
+        Args:
+            msg (str): The message to send.
+            sender (Optional[socket.socket]): The client socket that sent the message.
         """
 
         for client in self.clients:
-
-            # encrypt the message
-
-            # ...
+            if client == sender:
+                continue
 
             try:
-                client.send(msg.encode())
+                shared_secret = self.shared_secrets.get(client)
+
+                encrypted_msg = RSA.symmetric_encrypt(msg, shared_secret)
+                client.send(encrypted_msg.encode())
+
             except (ConnectionResetError, BrokenPipeError) as e:
                 print(f"[server]: Error sending message to a client: {e}")
                 self.remove_client(client)
 
-    def handle_client(self, c: socket, addr):
+    def handle_client(self, client_socket: socket.socket, addr: tuple[str, int]):
         """ Receives messages from a client and forwards them.
 
         Args:
-            c (socket.socket): Client socket.
-            addr: Client address (host, port).
+            client_socket (socket.socket): The socket object for the connected client.
+            addr (Tuple[str, int]): The address of the connected client.
         """
 
         try:
             while True:
-                msg = c.recv(1024)
+                encrypted_msg = client_socket.recv(1024).decode()
 
-                if msg.decode().lower() == "!exit":
+                if not encrypted_msg:
+                    break
+
+                if encrypted_msg == "!exit":
                     print(f"[server]: Client {addr} disconnected.")
                     break
 
-                for client in self.clients:
-                    if client != c:
-                        try:
-                            client.send(msg)
-                        except (ConnectionResetError, BrokenPipeError) as e:
-                            print(f"[server]: Error sending message to a client: {e}")
-                            self.remove_client(client)
+                shared_secret = self.shared_secrets.get(client_socket)
+
+                if shared_secret is None:
+                    continue
+
+                decrypted_msg = RSA.symmetric_decrypt(encrypted_msg, shared_secret)
+
+                print(f"[server]: Received message from {addr}: {decrypted_msg}")
+
+                self.broadcast(decrypted_msg, sender =client_socket)
+
         except (ConnectionResetError, BrokenPipeError, EOFError) as e:
             print(f"[server]: Client {addr} disconnected: {e}")
 
-        self.remove_client(c)
+        self.remove_client(client_socket)
         self.broadcast(f"[server]: Client {addr} disconnected.")
 
-    def remove_client(self, client):
-        """ Removes a client from the server and closes the connection. 
+    def remove_client(self, client: socket.socket):
+        """ Removes a client from the server and closes the connection.
+
+        Args:
+            client_socket (socket.socket): The socket object for the client to remove.
         """
 
         if client in self.clients:
             self.clients.remove(client)
+            self.username_lookup.pop(client, None)
+            self.public_keys.pop(client, None)
+            self.shared_secrets.pop(client, None)
             client.close()
+
+    def shutdown(self):
+        """ Shuts down the server and closes all client connections. 
+        """
+
+        for client in self.clients:
+            client.send("[server]: Server is shutting down.".encode())
+            self.remove_client(client)
+
+        self.s.close()
 
 if __name__ == "__main__":
     s = Server(9001)
