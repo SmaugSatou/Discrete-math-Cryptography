@@ -4,7 +4,7 @@ Server Module
 
 import socket
 import threading
-import random
+import secrets
 
 from rsa_ctyptosystem import RSA
 
@@ -27,10 +27,7 @@ class Server:
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         self.username_lookup = {}
-        self.public_keys = {}
         self.shared_secrets = {}
-
-        self.public_key, self.private_key = RSA.generate_key_pair()
 
     def start(self):
         """ Starts the server and handles new connections.
@@ -76,14 +73,13 @@ class Server:
                 return
 
             client_public_key = (client_module, client_exponent)
-            self.public_keys[client_socket] = client_public_key
 
-            shared_secret = random.randint(100000, 999999)
+            shared_secret = secrets.randbelow(10**6)
             encrypted_secret = RSA.encrypt(shared_secret, client_public_key)
             self.shared_secrets[client_socket] = shared_secret
 
             client_socket.send(str(encrypted_secret).encode())
-            self.broadcast(f'[server]: new person has joined: {username}')
+            self.broadcast(f'[server]: new person has joined: {username}', sender=client_socket)
 
             threading.Thread(target=self.handle_client, args=(client_socket, addr)).start()
 
@@ -117,7 +113,7 @@ class Server:
         """ Receives messages from a client and forwards them.
 
         Args:
-            client_socket (socket.socket): The socket object for the connected client.
+            client_socket (socket.socket): The client socket.
             addr (Tuple[str, int]): The address of the connected client.
         """
 
@@ -141,7 +137,7 @@ class Server:
 
                 print(f"[server]: Received message from {addr}: {decrypted_msg}")
 
-                self.broadcast(decrypted_msg, sender =client_socket)
+                self.broadcast(decrypted_msg, sender = client_socket)
 
         except (ConnectionResetError, BrokenPipeError, EOFError) as e:
             print(f"[server]: Client {addr} disconnected: {e}")
@@ -153,13 +149,12 @@ class Server:
         """ Removes a client from the server and closes the connection.
 
         Args:
-            client_socket (socket.socket): The socket object for the client to remove.
+            client_socket (socket.socket): The client socket to remove.
         """
 
         if client in self.clients:
             self.clients.remove(client)
             self.username_lookup.pop(client, None)
-            self.public_keys.pop(client, None)
             self.shared_secrets.pop(client, None)
             client.close()
 
