@@ -5,6 +5,7 @@ Server Module
 import socket
 import threading
 import secrets
+import re 
 
 from rsa_ctyptosystem import RSA
 
@@ -27,7 +28,9 @@ class Server:
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         self.username_lookup = {}
+        self.socket_lookup = {}
         self.shared_secrets = {}
+        self.public_keys = {}
 
     def start(self):
         """ Starts the server and handles new connections.
@@ -61,6 +64,7 @@ class Server:
             print(f"[server]: {username} tries to connect")
 
             self.username_lookup[client_socket] = username
+            self.socket_lookup[username] = client_socket
             self.clients.append(client_socket)
 
             try:
@@ -73,6 +77,7 @@ class Server:
                 return
 
             client_public_key = (client_module, client_exponent)
+            self.public_keys[client_socket] = client_public_key
 
             shared_secret = secrets.randbelow(10**6)
             encrypted_secret = RSA.encrypt(shared_secret, client_public_key)
@@ -109,6 +114,33 @@ class Server:
                 print(f"[server]: Error sending message to a client: {e}")
                 self.remove_client(client)
 
+    def send_private_message(self, message: str, recipient_username: str, sender: socket.socket):
+        """ Sends a private message to a specific client.
+
+        Args:
+            message (str): The private message to send.
+            recipient_username (str): The username of the recipient.
+            sender (socket.socket): The client socket that sent the message.
+        """
+
+        recipient_socket = self.socket_lookup.get(recipient_username)
+
+        if recipient_socket:
+            try:
+                shared_secret = self.shared_secrets.get(recipient_socket)
+                encrypted_msg = RSA.symmetric_encrypt(\
+                    f"[private] {self.username_lookup[sender]}: {message}", shared_secret)
+
+                recipient_socket.send(encrypted_msg.encode())
+
+                print(f"[server]: Private message from {self.username_lookup[sender]} " + \
+                       f"to {self.username_lookup[recipient_socket]}: {message}")
+            except (ConnectionResetError, BrokenPipeError) as e:
+                print(f"[server]: Error sending private message to {recipient_username}: {e}")
+                self.remove_client(recipient_socket)
+        else:
+            print(f"[server]: Private message recipient '{recipient_username}' not found.")
+
     def handle_client(self, client_socket: socket.socket, addr: tuple[str, int]):
         """ Receives messages from a client and forwards them.
 
@@ -135,9 +167,16 @@ class Server:
 
                 decrypted_msg = RSA.symmetric_decrypt(encrypted_msg, shared_secret)
 
-                print(f"[server]: Received message from {addr}: {decrypted_msg}")
 
-                self.broadcast(decrypted_msg, sender = client_socket)
+                if private_message_match := re.match(r"^@(\w+)\s+(.*)", decrypted_msg):
+                    recipient_username = private_message_match.group(1)
+                    private_message = private_message_match.group(2)
+
+                    self.send_private_message(private_message, recipient_username, \
+                                              sender = client_socket)
+                else:
+                    self.broadcast(decrypted_msg, sender=client_socket)
+                    print(f"[server]: Received message from {addr}: {decrypted_msg}")
 
         except (ConnectionResetError, BrokenPipeError, EOFError) as e:
             print(f"[server]: Client {addr} disconnected: {e}")
