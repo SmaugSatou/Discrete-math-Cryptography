@@ -178,39 +178,6 @@ class RSA:
         n, d = key
         return RSA.endecrypt_message(ciphertext, d, n)
 
-    # -------------------- String Encryption and Decryption --------------------
-    @staticmethod
-    def encrypt_string(message: str, key: tuple[int, int]) -> list[int]:
-        """ Encrypts a string message into a list of encrypted integers.
-
-        Args:
-            message (str): Message to encrypt.
-            key (tuple[int, int]): Public key (n, e).
-
-        Returns:
-            list[int]: List of encrypted integers.
-        """
-
-        decimal_list = RSA.string_to_int(message)
-
-        return [RSA.encrypt(m, key) for m in decimal_list]
-
-    @staticmethod
-    def decrypt_string(ciphertext: list[int], key: tuple[int, int]) -> str:
-        """ Decrypts a list of encrypted integers into a string message.
-
-        Args:
-            ciphertext (list[int]): List of encrypted integers to decrypt.
-            key (tuple[int, int]): Private key (n, d).
-
-        Returns:
-            str: Decrypted string message.
-        """
-
-        decrypted_list = [RSA.decrypt(c, key) for c in ciphertext]
-
-        return RSA.int_to_string(decrypted_list)
-
     # -------------------- Symmetric Encryption and Decryption --------------------
     @staticmethod
     def symmetric_encrypt(message: str, shared_secret: int) -> str:
@@ -239,30 +206,3 @@ class RSA:
         """
 
         return ''.join(chr((ord(char) - shared_secret) % 256) for char in encrypted_message)
-
-    # -------------------- Utility Functions --------------------
-    @staticmethod
-    def string_to_int(message: str) -> list[int]:
-        """ Converts a string message into a list of integers.
-
-        Args:
-            message (str): Message to convert.
-
-        Returns:
-            list[int]: List of integers representing the message.
-        """
-
-        return [ord(char) for char in message]
-
-    @staticmethod
-    def int_to_string(decimal_list: list[int]) -> str:
-        """ Converts a list of integers into a string message.
-
-        Args:
-            decimal_list (list[int]): List of integers to convert.
-
-        Returns:
-            str: Converted string message.
-        """
-
-        return ''.join(chr(i) for i in decimal_list)
