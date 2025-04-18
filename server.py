@@ -4,10 +4,9 @@ Server Module
 
 import socket
 import threading
-import secrets
 import re 
 
-from rsa_ctyptosystem import RSA
+from rsa_cryptosystem import RSA
 
 class Server:
     """
@@ -29,12 +28,11 @@ class Server:
 
         self.username_lookup = {}
         self.socket_lookup = {}
-        self.shared_secrets = {}
         self.public_keys = {}
         
-        # Generate RSA keys for the server (for message integrity)
         self.public_key, self.private_key = RSA.generate_key_pair()
-        print(f"[server]: Server initialized with RSA keys for message integrity verification")
+        print(f"[server]: Server initialized with RSA keys for encryption and message integrity")
+        print(f"[server]: RSA public key modulus: {self.public_key[0]}")
 
     def start(self):
         """ Starts the server and handles new connections.
@@ -83,15 +81,10 @@ class Server:
             client_public_key = (client_module, client_exponent)
             self.public_keys[client_socket] = client_public_key
             
-            # Send server's public key to the client for signature verification
             server_key_data = f"{self.public_key[0]},{self.public_key[1]}"
             client_socket.send(server_key_data.encode())
 
-            shared_secret = secrets.randbelow(10**6)
-            encrypted_secret = RSA.encrypt(shared_secret, client_public_key)
-            self.shared_secrets[client_socket] = shared_secret
-
-            client_socket.send(str(encrypted_secret).encode())
+            print(f"[server]: Client {username} connected with RSA public key (modulus: {client_module})")
             self.broadcast(f'[server]: new person has joined: {username}', sender=client_socket)
 
             threading.Thread(target=self.handle_client, args=(client_socket, addr)).start()
@@ -113,11 +106,12 @@ class Server:
                 continue
 
             try:
-                shared_secret = self.shared_secrets.get(client)
+                client_public_key = self.public_keys.get(client)
+                if client_public_key is None:
+                    continue
 
-                # Sign and encrypt the message before sending
-                encrypted_msg = RSA.symmetric_encrypt_with_integrity(
-                    msg, shared_secret, self.private_key
+                encrypted_msg = RSA.encrypt_with_integrity(
+                    msg, client_public_key, self.private_key
                 )
                 client.send(encrypted_msg.encode())
 
@@ -138,12 +132,14 @@ class Server:
 
         if recipient_socket:
             try:
-                shared_secret = self.shared_secrets.get(recipient_socket)
+                recipient_public_key = self.public_keys.get(recipient_socket)
+                if recipient_public_key is None:
+                    return
+                    
                 private_msg = f"[private] {self.username_lookup[sender]}: {message}"
                 
-                # Sign and encrypt the private message
-                encrypted_msg = RSA.symmetric_encrypt_with_integrity(
-                    private_msg, shared_secret, self.private_key
+                encrypted_msg = RSA.encrypt_with_integrity(
+                    private_msg, recipient_public_key, self.private_key
                 )
 
                 recipient_socket.send(encrypted_msg.encode())
@@ -166,7 +162,7 @@ class Server:
 
         try:
             while True:
-                encrypted_msg = client_socket.recv(1024).decode()
+                encrypted_msg = client_socket.recv(4096).decode()
 
                 if not encrypted_msg:
                     break
@@ -175,15 +171,13 @@ class Server:
                     print(f"[server]: Client {addr} disconnected.")
                     break
 
-                shared_secret = self.shared_secrets.get(client_socket)
                 client_public_key = self.public_keys.get(client_socket)
 
-                if shared_secret is None or client_public_key is None:
+                if client_public_key is None:
                     continue
 
-                # Decrypt message and verify signature
-                decrypted_msg, is_valid = RSA.symmetric_decrypt_with_integrity(
-                    encrypted_msg, shared_secret, client_public_key
+                decrypted_msg, is_valid = RSA.decrypt_with_integrity(
+                    encrypted_msg, self.private_key, client_public_key
                 )
                 
                 if not is_valid:
@@ -205,6 +199,8 @@ class Server:
 
         except (ConnectionResetError, BrokenPipeError, EOFError) as e:
             print(f"[server]: Client {addr} disconnected: {e}")
+        except Exception as e:
+            print(f"[server]: Error handling client message: {e}")
 
         self.remove_client(client_socket)
         self.broadcast(f"[server]: Client {addr} disconnected.")
@@ -219,7 +215,6 @@ class Server:
         if client in self.clients:
             self.clients.remove(client)
             self.username_lookup.pop(client, None)
-            self.shared_secrets.pop(client, None)
             self.public_keys.pop(client, None)
             client.close()
 
@@ -228,7 +223,10 @@ class Server:
         """
 
         for client in self.clients:
-            client.send("[server]: Server is shutting down.".encode())
+            try:
+                client.send("[server]: Server is shutting down.".encode())
+            except:
+                pass
             self.remove_client(client)
 
         self.s.close()

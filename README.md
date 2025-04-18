@@ -13,21 +13,19 @@ The goal is to demonstrate the core principles of cryptography (modular arithmet
 The `rsa_ctyptosystem.py` module implements the RSA cryptosystem and provides the following functionality:
 
 - **Key Generation**:
-  - Two large prime numbers `p` and `q` are generated within a specified range.
+  - Two large prime numbers `p` and `q` are generated within a specified range (10,000-50,000).
   - The modulus `n = p * q` is calculated.
   - Euler's totient function `phi = (p - 1)(q - 1)` is computed.
   - A public exponent `e` is chosen such that it is coprime with `phi`.
   - The private exponent `d` is calculated as the modular inverse of `e` modulo `phi`.
 
-- **Encryption and Decryption**:
-  - Messages are encrypted using the public key `(e, n)` with the formula:  
+- **Pure RSA Encryption and Decryption**:
+  - Messages are encrypted using the recipient's public key `(e, n)` with the formula:  
     `cipher = (message^e) mod n`.
-  - Encrypted messages are decrypted using the private key `(d, n)` with the formula:  
+  - Encrypted messages are decrypted using the recipient's private key `(d, n)` with the formula:  
     `message = (cipher^d) mod n`.
-
-- **Symmetric Encryption**:
-  - A shared secret is exchanged using RSA encryption.
-  - Messages are encrypted and decrypted using a simple symmetric cipher based on character shifts.
+  - For longer messages, the system splits the content into chunks that fit within the RSA key's capacity.
+  - Each chunk is encrypted separately and combined to form the complete encrypted message.
 
 ### Server
 
@@ -35,24 +33,25 @@ The `server.py` script implements a TCP server that facilitates secure communica
 
 - **Client Connection Handling**:
   - Accepts incoming client connections and receives their username and public RSA key.
-  - Generates a random symmetric key (shared secret) for each client.
-  - Encrypts the shared secret using the client's public RSA key and sends it to the client.
+  - Sends the server's public RSA key to the client for encryption and verification.
+  - Establishes a secure communication channel based purely on RSA encryption.
 
 - **Message Broadcasting**:
-  - Decrypts incoming messages from clients using their shared secret.
-  - Re-encrypts the message with the shared secret of each recipient and broadcasts it to all connected clients except the sender.
+  - Encrypts outgoing messages directly with each recipient's public RSA key.
+  - Signs each message with the server's private key to ensure authenticity.
+  - Verifies the integrity of incoming messages using clients' public keys.
 
 ### Client
 
 The `client.py` script implements a TCP client for secure communication with the server. Key features include:
 
 - **Connection Initialization**:
-  - Connects to the server and sends the user's username and public RSA key.
-  - Receives the encrypted shared secret from the server and decrypts it using the private RSA key.
+  - Connects to the server and exchanges public RSA keys.
+  - Establishes a secure communication channel for sending and receiving messages.
 
 - **Message Encryption and Decryption**:
-  - Outgoing messages are encrypted using the shared secret before being sent to the server.
-  - Incoming messages are decrypted using the shared secret and displayed to the user.
+  - Outgoing messages are encrypted using the server's public RSA key and signed with the client's private key.
+  - Incoming messages are decrypted using the client's private RSA key and verified using the server's public key.
 
 - **Real-Time Communication**:
   - Supports real-time message exchange using separate threads for reading and writing messages.
@@ -72,12 +71,11 @@ The system implements message integrity checking to ensure that messages have no
     3. Comparing the decrypted signature with the computed hash
   - If the values match, the message integrity is confirmed; otherwise, tampering is detected.
 
-- **Implementation**:
-  - The server has its own RSA key pair for signing its messages.
-  - Each client uses its RSA key pair to sign outgoing messages.
-  - Signature and message are packaged together, encrypted, and transmitted.
-  - Recipients validate the message integrity before processing.
-  - Warning messages are displayed if tampering is detected.
+- **Clean RSA Implementation**:
+  - The system uses RSA for both encryption and digital signatures.
+  - No symmetric encryption or shared secrets are used, making this a "clean" RSA implementation.
+  - Messages are broken into chunks to overcome RSA's size limitations for encrypting large messages.
+  - Base64 encoding and JSON are used to handle the binary data and multiple chunks.
 
 ---
 
@@ -91,6 +89,7 @@ The system implements message integrity checking to ensure that messages have no
 **Mykhailo Rykhalskyi**:
 - Implemented message integrity verification using digital signatures.
 - Enhanced the client-server communication protocol to support message integrity.
+- Converted the hybrid encryption system to a clean RSA-only solution.
 
 ---
 
