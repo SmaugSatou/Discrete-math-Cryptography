@@ -31,6 +31,10 @@ class Server:
         self.socket_lookup = {}
         self.shared_secrets = {}
         self.public_keys = {}
+        
+        # Generate RSA keys for the server (for message integrity)
+        self.public_key, self.private_key = RSA.generate_key_pair()
+        print(f"[server]: Server initialized with RSA keys for message integrity verification")
 
     def start(self):
         """ Starts the server and handles new connections.
@@ -78,6 +82,10 @@ class Server:
 
             client_public_key = (client_module, client_exponent)
             self.public_keys[client_socket] = client_public_key
+            
+            # Send server's public key to the client for signature verification
+            server_key_data = f"{self.public_key[0]},{self.public_key[1]}"
+            client_socket.send(server_key_data.encode())
 
             shared_secret = secrets.randbelow(10**6)
             encrypted_secret = RSA.encrypt(shared_secret, client_public_key)
@@ -107,7 +115,10 @@ class Server:
             try:
                 shared_secret = self.shared_secrets.get(client)
 
-                encrypted_msg = RSA.symmetric_encrypt(msg, shared_secret)
+                # Sign and encrypt the message before sending
+                encrypted_msg = RSA.symmetric_encrypt_with_integrity(
+                    msg, shared_secret, self.private_key
+                )
                 client.send(encrypted_msg.encode())
 
             except (ConnectionResetError, BrokenPipeError) as e:
@@ -128,8 +139,12 @@ class Server:
         if recipient_socket:
             try:
                 shared_secret = self.shared_secrets.get(recipient_socket)
-                encrypted_msg = RSA.symmetric_encrypt(\
-                    f"[private] {self.username_lookup[sender]}: {message}", shared_secret)
+                private_msg = f"[private] {self.username_lookup[sender]}: {message}"
+                
+                # Sign and encrypt the private message
+                encrypted_msg = RSA.symmetric_encrypt_with_integrity(
+                    private_msg, shared_secret, self.private_key
+                )
 
                 recipient_socket.send(encrypted_msg.encode())
 
@@ -161,12 +176,20 @@ class Server:
                     break
 
                 shared_secret = self.shared_secrets.get(client_socket)
+                client_public_key = self.public_keys.get(client_socket)
 
-                if shared_secret is None:
+                if shared_secret is None or client_public_key is None:
                     continue
 
-                decrypted_msg = RSA.symmetric_decrypt(encrypted_msg, shared_secret)
-
+                # Decrypt message and verify signature
+                decrypted_msg, is_valid = RSA.symmetric_decrypt_with_integrity(
+                    encrypted_msg, shared_secret, client_public_key
+                )
+                
+                if not is_valid:
+                    print(f"[server WARNING]: Received message with invalid integrity from {addr}!")
+                    print(f"Message content: {decrypted_msg}")
+                    continue
 
                 if private_message_match := re.match(r"^@(\w+)\s+(.*)", decrypted_msg):
                     recipient_username = private_message_match.group(1)
@@ -175,7 +198,9 @@ class Server:
                     self.send_private_message(private_message, recipient_username, \
                                               sender = client_socket)
                 else:
-                    self.broadcast(decrypted_msg, sender=client_socket)
+                    username = self.username_lookup.get(client_socket, f"User{addr}")
+                    full_message = f"{username}: {decrypted_msg}"
+                    self.broadcast(full_message, sender=client_socket)
                     print(f"[server]: Received message from {addr}: {decrypted_msg}")
 
         except (ConnectionResetError, BrokenPipeError, EOFError) as e:
@@ -195,6 +220,7 @@ class Server:
             self.clients.remove(client)
             self.username_lookup.pop(client, None)
             self.shared_secrets.pop(client, None)
+            self.public_keys.pop(client, None)
             client.close()
 
     def shutdown(self):

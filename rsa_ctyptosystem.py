@@ -3,6 +3,8 @@ Rivest-Shamir-Adleman cryptosystem
 """
 
 import random
+import hashlib
+import json
 from math import gcd
 
 class RSA:
@@ -177,6 +179,118 @@ class RSA:
 
         n, d = key
         return RSA.endecrypt_message(ciphertext, d, n)
+
+    # -------------------- Message Integrity --------------------
+    @staticmethod
+    def compute_hash(message: str) -> int:
+        """ Computes a hash of the message.
+
+        Args:
+            message (str): Message to hash.
+
+        Returns:
+            int: Hash value as an integer.
+        """
+        # Use a shorter hash (first 8 bytes of SHA-256) to ensure it fits within RSA key modulus
+        hash_obj = hashlib.sha256(message.encode())
+        hash_bytes = hash_obj.digest()[:8]  # Use just first 8 bytes (64 bits)
+        return int.from_bytes(hash_bytes, byteorder='big')
+
+    @staticmethod
+    def sign_message(message: str, private_key: tuple[int, int]) -> int:
+        """ Signs a message using the private key.
+
+        Args:
+            message (str): Message to sign.
+            private_key (tuple[int, int]): Private key (n, d).
+
+        Returns:
+            int: Digital signature.
+        """
+        message_hash = RSA.compute_hash(message)
+        # Make sure hash is within the range of RSA modulus
+        n, _ = private_key
+        message_hash = message_hash % n
+        return RSA.decrypt(message_hash, private_key)  # "Decrypt" the hash with private key to sign it
+
+    @staticmethod
+    def verify_signature(message: str, signature: int, public_key: tuple[int, int]) -> bool:
+        """ Verifies a message signature.
+
+        Args:
+            message (str): Original message.
+            signature (int): Signature to verify.
+            public_key (tuple[int, int]): Public key (n, e).
+
+        Returns:
+            bool: True if signature is valid, False otherwise.
+        """
+        message_hash = RSA.compute_hash(message)
+        # Make sure hash is within the range of RSA modulus
+        n, _ = public_key
+        message_hash = message_hash % n
+        decrypted_signature = RSA.encrypt(signature, public_key)  # "Encrypt" the signature with public key
+        return message_hash == decrypted_signature
+
+    # -------------------- Symmetric Encryption and Decryption with Integrity --------------------
+    @staticmethod
+    def symmetric_encrypt_with_integrity(message: str, shared_secret: int, private_key: tuple[int, int]) -> str:
+        """ Encrypts a message using a shared secret and adds a signature for integrity.
+
+        Args:
+            message (str): Message to encrypt.
+            shared_secret (int): Shared secret for encryption.
+            private_key (tuple[int, int]): Private key for signing.
+
+        Returns:
+            str: Encrypted message with signature.
+        """
+        # Sign the message first to ensure integrity
+        signature = RSA.sign_message(message, private_key)
+        
+        # Create a data structure with message and signature
+        # Convert signature to string to avoid precision issues with large integers in JSON
+        data = {
+            "message": message,
+            "signature": str(signature)
+        }
+        
+        # Convert to JSON string
+        json_data = json.dumps(data)
+        
+        # Encrypt the entire package
+        return RSA.symmetric_encrypt(json_data, shared_secret)
+
+    @staticmethod
+    def symmetric_decrypt_with_integrity(encrypted_message: str, shared_secret: int, 
+                                        public_key: tuple[int, int]) -> tuple[str, bool]:
+        """ Decrypts a message using a shared secret and verifies its integrity.
+
+        Args:
+            encrypted_message (str): Encrypted message with signature.
+            shared_secret (int): Shared secret for decryption.
+            public_key (tuple[int, int]): Public key for verification.
+
+        Returns:
+            tuple[str, bool]: Decrypted message and integrity verification result.
+        """
+        # Decrypt the message first
+        try:
+            decrypted_json = RSA.symmetric_decrypt(encrypted_message, shared_secret)
+            
+            # Parse the JSON data
+            data = json.loads(decrypted_json)
+            message = data["message"]
+            # Convert signature back from string to integer
+            signature = int(data["signature"])
+            
+            # Verify the signature
+            is_valid = RSA.verify_signature(message, signature, public_key)
+            
+            return message, is_valid
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            # If any errors occur during decryption or verification, integrity is compromised
+            return f"Error: Message integrity compromised ({str(e)})", False
 
     # -------------------- Symmetric Encryption and Decryption --------------------
     @staticmethod
