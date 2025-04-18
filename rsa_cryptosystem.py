@@ -5,6 +5,7 @@ Rivest-Shamir-Adleman cryptosystem
 import random
 import hashlib
 import json
+import base64
 from math import gcd
 
 class RSA:
@@ -14,13 +15,13 @@ class RSA:
 
     # -------------------- Prime Number Generation --------------------
     @staticmethod
-    def generate_prime_numbers(min_value: int = 1000, \
-                                max_value: int = 10000, number=2) -> tuple[int]:
+    def generate_prime_numbers(min_value: int = 10000, \
+                                max_value: int = 50000, number=2) -> tuple[int]:
         """  Generates <number> distinct prime numbers in the given range.
 
         Args:
-            min_value (int, optional): Minimum value of prime numbers. Defaults to 1000.
-            max_value (int, optional): Maximum value of prime numbers. Defaults to 1000.
+            min_value (int, optional): Minimum value of prime numbers. Defaults to 10000.
+            max_value (int, optional): Maximum value of prime numbers. Defaults to 50000.
             number (int, optional): <number> of prime numbers to return. Defaults to 2.
 
         Returns:
@@ -94,7 +95,6 @@ class RSA:
         gcd_value, x, _ = RSA.extended_gcd(a, module)
 
         if gcd_value != 1:
-
             raise ValueError("Modular inverse does not exist!")
 
         return x % module
@@ -151,7 +151,7 @@ class RSA:
         return res
 
     @staticmethod
-    def encrypt(message: int, key: tuple[int, int]) -> int:
+    def encrypt_int(message: int, key: tuple[int, int]) -> int:
         """ Encrypts a message using the RSA algorithm.
 
         Args:
@@ -166,7 +166,7 @@ class RSA:
         return RSA.endecrypt_message(message, e, n)
 
     @staticmethod
-    def decrypt(ciphertext: int, key: tuple[int, int]) -> int:
+    def decrypt_int(ciphertext: int, key: tuple[int, int]) -> int:
         """ Decrypts a message using the RSA algorithm.
 
         Args:
@@ -180,6 +180,64 @@ class RSA:
         n, d = key
         return RSA.endecrypt_message(ciphertext, d, n)
 
+    # -------------------- Text Encryption and Decryption with RSA --------------------
+    @staticmethod
+    def encrypt_text(message: str, key: tuple[int, int]) -> str:
+        """ Encrypts a text message using RSA by processing it in chunks.
+        
+        Args:
+            message (str): The text message to encrypt.
+            key (tuple[int, int]): Public key (n, e).
+            
+        Returns:
+            str: Base64-encoded encrypted message.
+        """
+        n, _ = key
+        max_bytes = (n.bit_length() - 1) // 8 - 1
+        
+        if max_bytes < 1:
+            raise ValueError("Key size too small for text encryption")
+        
+        message_bytes = message.encode('utf-8')
+        chunks = [message_bytes[i:i+max_bytes] for i in range(0, len(message_bytes), max_bytes)]
+        
+        encrypted_chunks = []
+        for chunk in chunks:
+            chunk_int = int.from_bytes(chunk, byteorder='big')
+            encrypted_int = RSA.encrypt_int(chunk_int, key)
+            encrypted_chunks.append(encrypted_int)
+        
+        encrypted_json = json.dumps(encrypted_chunks)
+        return base64.b64encode(encrypted_json.encode('utf-8')).decode('utf-8')
+
+    @staticmethod
+    def decrypt_text(encrypted_message: str, key: tuple[int, int]) -> str:
+        """ Decrypts a text message encrypted with RSA.
+        
+        Args:
+            encrypted_message (str): Base64-encoded encrypted message.
+            key (tuple[int, int]): Private key (n, d).
+            
+        Returns:
+            str: Decrypted text message.
+        """
+        try:
+            json_data = base64.b64decode(encrypted_message.encode('utf-8')).decode('utf-8')
+            encrypted_chunks = json.loads(json_data)
+            
+            decrypted_chunks = []
+            for encrypted_int in encrypted_chunks:
+                decrypted_int = RSA.decrypt_int(encrypted_int, key)
+                bytes_required = (decrypted_int.bit_length() + 7) // 8
+                decrypted_bytes = decrypted_int.to_bytes(bytes_required, byteorder='big')
+                decrypted_chunks.append(decrypted_bytes)
+            
+            decrypted_message = b''.join(decrypted_chunks)
+            return decrypted_message.decode('utf-8')
+            
+        except (base64.binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as e:
+            return f"Error decrypting message: {str(e)}"
+
     # -------------------- Message Integrity --------------------
     @staticmethod
     def compute_hash(message: str) -> int:
@@ -191,9 +249,8 @@ class RSA:
         Returns:
             int: Hash value as an integer.
         """
-        # Use a shorter hash (first 8 bytes of SHA-256) to ensure it fits within RSA key modulus
         hash_obj = hashlib.sha256(message.encode())
-        hash_bytes = hash_obj.digest()[:8]  # Use just first 8 bytes (64 bits)
+        hash_bytes = hash_obj.digest()[:8]  # Use first 8 bytes (64 bits)
         return int.from_bytes(hash_bytes, byteorder='big')
 
     @staticmethod
@@ -208,10 +265,9 @@ class RSA:
             int: Digital signature.
         """
         message_hash = RSA.compute_hash(message)
-        # Make sure hash is within the range of RSA modulus
         n, _ = private_key
         message_hash = message_hash % n
-        return RSA.decrypt(message_hash, private_key)  # "Decrypt" the hash with private key to sign it
+        return RSA.decrypt_int(message_hash, private_key)  # "Decrypt" the hash with private key to sign it
 
     @staticmethod
     def verify_signature(message: str, signature: int, public_key: tuple[int, int]) -> bool:
@@ -226,97 +282,56 @@ class RSA:
             bool: True if signature is valid, False otherwise.
         """
         message_hash = RSA.compute_hash(message)
-        # Make sure hash is within the range of RSA modulus
         n, _ = public_key
         message_hash = message_hash % n
-        decrypted_signature = RSA.encrypt(signature, public_key)  # "Encrypt" the signature with public key
+        decrypted_signature = RSA.encrypt_int(signature, public_key)  # "Encrypt" the signature with public key
         return message_hash == decrypted_signature
 
-    # -------------------- Symmetric Encryption and Decryption with Integrity --------------------
+    # -------------------- Message Encryption with Integrity --------------------
     @staticmethod
-    def symmetric_encrypt_with_integrity(message: str, shared_secret: int, private_key: tuple[int, int]) -> str:
-        """ Encrypts a message using a shared secret and adds a signature for integrity.
+    def encrypt_with_integrity(message: str, recipient_public_key: tuple[int, int], sender_private_key: tuple[int, int]) -> str:
+        """ Encrypts a message and adds a signature for integrity.
 
         Args:
             message (str): Message to encrypt.
-            shared_secret (int): Shared secret for encryption.
-            private_key (tuple[int, int]): Private key for signing.
+            recipient_public_key (tuple[int, int]): Recipient's public key.
+            sender_private_key (tuple[int, int]): Sender's private key.
 
         Returns:
             str: Encrypted message with signature.
         """
-        # Sign the message first to ensure integrity
-        signature = RSA.sign_message(message, private_key)
+        signature = RSA.sign_message(message, sender_private_key)
         
-        # Create a data structure with message and signature
-        # Convert signature to string to avoid precision issues with large integers in JSON
         data = {
             "message": message,
             "signature": str(signature)
         }
         
-        # Convert to JSON string
         json_data = json.dumps(data)
-        
-        # Encrypt the entire package
-        return RSA.symmetric_encrypt(json_data, shared_secret)
+        return RSA.encrypt_text(json_data, recipient_public_key)
 
     @staticmethod
-    def symmetric_decrypt_with_integrity(encrypted_message: str, shared_secret: int, 
-                                        public_key: tuple[int, int]) -> tuple[str, bool]:
-        """ Decrypts a message using a shared secret and verifies its integrity.
+    def decrypt_with_integrity(encrypted_message: str, recipient_private_key: tuple[int, int], 
+                              sender_public_key: tuple[int, int]) -> tuple[str, bool]:
+        """ Decrypts a message and verifies its integrity.
 
         Args:
             encrypted_message (str): Encrypted message with signature.
-            shared_secret (int): Shared secret for decryption.
-            public_key (tuple[int, int]): Public key for verification.
+            recipient_private_key (tuple[int, int]): Recipient's private key.
+            sender_public_key (tuple[int, int]): Sender's public key.
 
         Returns:
             tuple[str, bool]: Decrypted message and integrity verification result.
         """
-        # Decrypt the message first
         try:
-            decrypted_json = RSA.symmetric_decrypt(encrypted_message, shared_secret)
+            decrypted_json = RSA.decrypt_text(encrypted_message, recipient_private_key)
             
-            # Parse the JSON data
             data = json.loads(decrypted_json)
             message = data["message"]
-            # Convert signature back from string to integer
             signature = int(data["signature"])
             
-            # Verify the signature
-            is_valid = RSA.verify_signature(message, signature, public_key)
+            is_valid = RSA.verify_signature(message, signature, sender_public_key)
             
             return message, is_valid
         except (json.JSONDecodeError, KeyError, ValueError) as e:
-            # If any errors occur during decryption or verification, integrity is compromised
             return f"Error: Message integrity compromised ({str(e)})", False
-
-    # -------------------- Symmetric Encryption and Decryption --------------------
-    @staticmethod
-    def symmetric_encrypt(message: str, shared_secret: int) -> str:
-        """ Encrypts a message using a shared secret.
-
-        Args:
-            message (str): Message to encrypt.
-            shared_secret (int): Shared secret for encryption.
-
-        Returns:
-            str: Encrypted message.
-        """
-
-        return ''.join(chr((ord(char) + shared_secret) % 256) for char in message)
-
-    @staticmethod
-    def symmetric_decrypt(encrypted_message: str, shared_secret: int) -> str:
-        """ Decrypts a message using a shared secret.
-
-        Args:
-            encrypted_message (str): Encrypted message to decrypt.
-            shared_secret (int): Shared secret for decryption.
-
-        Returns:
-            str: Decrypted message.
-        """
-
-        return ''.join(chr((ord(char) - shared_secret) % 256) for char in encrypted_message)

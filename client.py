@@ -6,7 +6,7 @@ import socket
 import threading
 import random
 
-from rsa_ctyptosystem import RSA
+from rsa_cryptosystem import RSA
 
 class Client:
     """
@@ -20,7 +20,6 @@ class Client:
         self.client_socket = None
         self.public_key = None
         self.private_key = None
-        self.shared_secret = None
         self.server_public_key = None
 
     def init_connection(self):
@@ -43,15 +42,11 @@ class Client:
         client_key_data = f"{self.public_key[0]},{self.public_key[1]}"
         self.client_socket.send(client_key_data.encode())
 
-        # Receive server's public key for signature verification
         server_key_data = self.client_socket.recv(1024).decode()
         server_module, server_exponent = map(int, server_key_data.split(','))
         self.server_public_key = (server_module, server_exponent)
-        
-        encrypted_secret = int(self.client_socket.recv(1024).decode())
-        self.shared_secret = RSA.decrypt(encrypted_secret, self.private_key)
 
-        print(f"[client]: Shared secret established: {self.shared_secret}")
+        print(f"[client]: RSA keys exchanged. Public key modulus: {self.public_key[0]}")
         print(f"[client]: Message integrity verification enabled")
 
         message_handler = threading.Thread(target=self.read_handler, args=())
@@ -66,14 +61,13 @@ class Client:
 
         while True:
             try:
-                encrypted_message = self.client_socket.recv(1024).decode()
+                encrypted_message = self.client_socket.recv(4096).decode()
 
                 if not encrypted_message:
                     break
 
-                # Decrypt message and verify integrity
-                decrypted_message, is_valid = RSA.symmetric_decrypt_with_integrity(
-                    encrypted_message, self.shared_secret, self.server_public_key
+                decrypted_message, is_valid = RSA.decrypt_with_integrity(
+                    encrypted_message, self.private_key, self.server_public_key
                 )
                 
                 if is_valid:
@@ -82,8 +76,8 @@ class Client:
                     print("[client WARNING]: Received message with invalid integrity - may have been tampered with!")
                     print(f"Message content: {decrypted_message}")
 
-            except (ConnectionResetError, BrokenPipeError):
-                print("[client]: Connection lost.")
+            except (ConnectionResetError, BrokenPipeError) as e:
+                print(f"[client]: Connection lost: {e}")
                 break
 
     def write_handler(self):
@@ -99,15 +93,16 @@ class Client:
                     self.client_socket.send(b'!exit')
                     break
 
-                # Encrypt message with integrity protection
-                encrypted_message = RSA.symmetric_encrypt_with_integrity(
-                    message, self.shared_secret, self.private_key
+                encrypted_message = RSA.encrypt_with_integrity(
+                    message, self.server_public_key, self.private_key
                 )
                 self.client_socket.send(encrypted_message.encode())
 
         except EOFError:
             print("[client]: Input stream closed. Disconnecting...")
             self.client_socket.send(b'!exit')
+        except Exception as e:
+            print(f"[client]: Error in write handler: {e}")
 
         print("[client]: Connection closed.")
 
