@@ -15,7 +15,7 @@ The `rsa_ctyptosystem.py` module implements the RSA cryptosystem and provides th
 - **Key Generation**:
   - Two large prime numbers `p` and `q` are generated within a specified range.
   - The modulus `n = p * q` is calculated.
-  - Euler’s totient function `phi = (p - 1)(q - 1)` is computed.
+  - Euler's totient function `phi = (p - 1)(q - 1)` is computed.
   - A public exponent `e` is chosen such that it is coprime with `phi`.
   - The private exponent `d` is calculated as the modular inverse of `e` modulo `phi`.
 
@@ -36,7 +36,7 @@ The `server.py` script implements a TCP server that facilitates secure communica
 - **Client Connection Handling**:
   - Accepts incoming client connections and receives their username and public RSA key.
   - Generates a random symmetric key (shared secret) for each client.
-  - Encrypts the shared secret using the client’s public RSA key and sends it to the client.
+  - Encrypts the shared secret using the client's public RSA key and sends it to the client.
 
 - **Message Broadcasting**:
   - Decrypts incoming messages from clients using their shared secret.
@@ -47,7 +47,7 @@ The `server.py` script implements a TCP server that facilitates secure communica
 The `client.py` script implements a TCP client for secure communication with the server. Key features include:
 
 - **Connection Initialization**:
-  - Connects to the server and sends the user’s username and public RSA key.
+  - Connects to the server and sends the user's username and public RSA key.
   - Receives the encrypted shared secret from the server and decrypts it using the private RSA key.
 
 - **Message Encryption and Decryption**:
@@ -59,6 +59,26 @@ The `client.py` script implements a TCP client for secure communication with the
 
 ### Message Integrity
 
+The system implements message integrity checking to ensure that messages have not been tampered with during transmission:
+
+- **Digital Signatures**:
+  - Before sending a message, the sender signs it with their private RSA key.
+  - The signature is created by computing a SHA-256 hash of the message and encrypting the hash with the sender's private key.
+
+- **Integrity Verification**:
+  - When a message is received, the recipient verifies its integrity by:
+    1. Decrypting the signature using the sender's public key
+    2. Computing the hash of the received message
+    3. Comparing the decrypted signature with the computed hash
+  - If the values match, the message integrity is confirmed; otherwise, tampering is detected.
+
+- **Implementation**:
+  - The server has its own RSA key pair for signing its messages.
+  - Each client uses its RSA key pair to sign outgoing messages.
+  - Signature and message are packaged together, encrypted, and transmitted.
+  - Recipients validate the message integrity before processing.
+  - Warning messages are displayed if tampering is detected.
+
 ---
 
 ## Task Distribution
@@ -69,6 +89,8 @@ The `client.py` script implements a TCP client for secure communication with the
 - Integrated encryption and decryption into the real-time chat system.
 
 **Mykhailo Rykhalskyi**:
+- Implemented message integrity verification using digital signatures.
+- Enhanced the client-server communication protocol to support message integrity.
 
 ---
 
