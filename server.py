@@ -4,7 +4,7 @@ Server Module
 
 import socket
 import threading
-import re 
+import re
 
 from rsa_cryptosystem import RSA
 
@@ -29,9 +29,9 @@ class Server:
         self.username_lookup = {}
         self.socket_lookup = {}
         self.public_keys = {}
-        
+
         self.public_key, self.private_key = RSA.generate_key_pair()
-        print(f"[server]: Server initialized with RSA keys for encryption and message integrity")
+        print("[server]: Server initialized with RSA keys for encryption and message integrity")
         print(f"[server]: RSA public key modulus: {self.public_key[0]}")
 
     def start(self):
@@ -80,11 +80,12 @@ class Server:
 
             client_public_key = (client_module, client_exponent)
             self.public_keys[client_socket] = client_public_key
-            
+
             server_key_data = f"{self.public_key[0]},{self.public_key[1]}"
             client_socket.send(server_key_data.encode())
 
-            print(f"[server]: Client {username} connected with RSA public key (modulus: {client_module})")
+            print(f"[server]: Client {username} connected " +\
+                  f"with RSA public key (modulus: {client_module})")
             self.broadcast(f'[server]: new person has joined: {username}', sender=client_socket)
 
             threading.Thread(target=self.handle_client, args=(client_socket, addr)).start()
@@ -135,9 +136,9 @@ class Server:
                 recipient_public_key = self.public_keys.get(recipient_socket)
                 if recipient_public_key is None:
                     return
-                    
+
                 private_msg = f"[private] {self.username_lookup[sender]}: {message}"
-                
+
                 encrypted_msg = RSA.encrypt_with_integrity(
                     private_msg, recipient_public_key, self.private_key
                 )
@@ -179,7 +180,7 @@ class Server:
                 decrypted_msg, is_valid = RSA.decrypt_with_integrity(
                     encrypted_msg, self.private_key, client_public_key
                 )
-                
+
                 if not is_valid:
                     print(f"[server WARNING]: Received message with invalid integrity from {addr}!")
                     print(f"Message content: {decrypted_msg}")

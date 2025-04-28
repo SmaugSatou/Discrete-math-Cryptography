@@ -194,19 +194,19 @@ class RSA:
         """
         n, _ = key
         max_bytes = (n.bit_length() - 1) // 8 - 1
-        
+
         if max_bytes < 1:
             raise ValueError("Key size too small for text encryption")
-        
+
         message_bytes = message.encode('utf-8')
         chunks = [message_bytes[i:i+max_bytes] for i in range(0, len(message_bytes), max_bytes)]
-        
+
         encrypted_chunks = []
         for chunk in chunks:
             chunk_int = int.from_bytes(chunk, byteorder='big')
             encrypted_int = RSA.encrypt_int(chunk_int, key)
             encrypted_chunks.append(encrypted_int)
-        
+
         encrypted_json = json.dumps(encrypted_chunks)
         return base64.b64encode(encrypted_json.encode('utf-8')).decode('utf-8')
 
@@ -224,17 +224,17 @@ class RSA:
         try:
             json_data = base64.b64decode(encrypted_message.encode('utf-8')).decode('utf-8')
             encrypted_chunks = json.loads(json_data)
-            
+
             decrypted_chunks = []
             for encrypted_int in encrypted_chunks:
                 decrypted_int = RSA.decrypt_int(encrypted_int, key)
                 bytes_required = (decrypted_int.bit_length() + 7) // 8
                 decrypted_bytes = decrypted_int.to_bytes(bytes_required, byteorder='big')
                 decrypted_chunks.append(decrypted_bytes)
-            
+
             decrypted_message = b''.join(decrypted_chunks)
             return decrypted_message.decode('utf-8')
-            
+
         except (base64.binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as e:
             return f"Error decrypting message: {str(e)}"
 
@@ -267,7 +267,9 @@ class RSA:
         message_hash = RSA.compute_hash(message)
         n, _ = private_key
         message_hash = message_hash % n
-        return RSA.decrypt_int(message_hash, private_key)  # "Decrypt" the hash with private key to sign it
+
+        # "Decrypt" the hash with private key to sign it
+        return RSA.decrypt_int(message_hash, private_key)
 
     @staticmethod
     def verify_signature(message: str, signature: int, public_key: tuple[int, int]) -> bool:
@@ -284,12 +286,16 @@ class RSA:
         message_hash = RSA.compute_hash(message)
         n, _ = public_key
         message_hash = message_hash % n
-        decrypted_signature = RSA.encrypt_int(signature, public_key)  # "Encrypt" the signature with public key
+
+        # "Encrypt" the signature with public key
+        decrypted_signature = RSA.encrypt_int(signature, public_key)
         return message_hash == decrypted_signature
 
     # -------------------- Message Encryption with Integrity --------------------
     @staticmethod
-    def encrypt_with_integrity(message: str, recipient_public_key: tuple[int, int], sender_private_key: tuple[int, int]) -> str:
+    def encrypt_with_integrity(message: str, \
+                               recipient_public_key: tuple[int, int], \
+                               sender_private_key: tuple[int, int]) -> str:
         """ Encrypts a message and adds a signature for integrity.
 
         Args:
@@ -301,17 +307,18 @@ class RSA:
             str: Encrypted message with signature.
         """
         signature = RSA.sign_message(message, sender_private_key)
-        
+
         data = {
             "message": message,
             "signature": str(signature)
         }
-        
+
         json_data = json.dumps(data)
         return RSA.encrypt_text(json_data, recipient_public_key)
 
     @staticmethod
-    def decrypt_with_integrity(encrypted_message: str, recipient_private_key: tuple[int, int], 
+    def decrypt_with_integrity(encrypted_message: str, \
+                               recipient_private_key: tuple[int, int], \
                               sender_public_key: tuple[int, int]) -> tuple[str, bool]:
         """ Decrypts a message and verifies its integrity.
 
@@ -325,13 +332,13 @@ class RSA:
         """
         try:
             decrypted_json = RSA.decrypt_text(encrypted_message, recipient_private_key)
-            
+
             data = json.loads(decrypted_json)
             message = data["message"]
             signature = int(data["signature"])
-            
+
             is_valid = RSA.verify_signature(message, signature, sender_public_key)
-            
+
             return message, is_valid
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             return f"Error: Message integrity compromised ({str(e)})", False

@@ -47,7 +47,7 @@ class Client:
         self.server_public_key = (server_module, server_exponent)
 
         print(f"[client]: RSA keys exchanged. Public key modulus: {self.public_key[0]}")
-        print(f"[client]: Message integrity verification enabled")
+        print("[client]: Message integrity verification enabled")
 
         message_handler = threading.Thread(target=self.read_handler, args=())
         message_handler.start()
@@ -69,11 +69,12 @@ class Client:
                 decrypted_message, is_valid = RSA.decrypt_with_integrity(
                     encrypted_message, self.private_key, self.server_public_key
                 )
-                
+
                 if is_valid:
                     print(decrypted_message)
                 else:
-                    print("[client WARNING]: Received message with invalid integrity - may have been tampered with!")
+                    print("[client WARNING]: Received message with invalid " +\
+                           "integrity - may have been tampered with!")
                     print(f"Message content: {decrypted_message}")
 
             except (ConnectionResetError, BrokenPipeError) as e:
